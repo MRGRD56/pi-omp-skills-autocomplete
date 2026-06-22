@@ -1,5 +1,10 @@
 # `$skill` Autocomplete Extensions for OMP and plain `pi`
 
+<img width="686" height="83" alt="image" src="https://github.com/user-attachments/assets/bcfe0e75-20af-45ce-9a7a-40bd6b30a132" />
+
+<img width="427" height="166" alt="image" src="https://github.com/user-attachments/assets/daa8c98b-e238-4fc8-980a-09ee0377daf0" />
+
+
 This repository contains separate `$skill` autocomplete extension entrypoints for **Oh My Pi / OMP** and plain **`pi`**.
 
 - `omp-skills-autocomplete.ts` targets OMP and installs as `~/.omp/agent/extensions/skills-autocomplete.ts`.
