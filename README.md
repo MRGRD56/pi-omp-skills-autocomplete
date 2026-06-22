@@ -54,13 +54,13 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 Create the OMP extension directory and download the OMP extension file into it:
 
 ```bash
-mkdir -p "$HOME/.omp/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/pi-omp-skills-autocomplete/main/omp-skills-autocomplete.ts -o "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
+mkdir -p "$HOME/.omp/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/omp-skills-autocomplete.ts -o "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
 ```
 
 On Windows PowerShell:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.omp\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/YOUR_GITHUB_USER/pi-omp-skills-autocomplete/main/omp-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.omp\agent\extensions\skills-autocomplete.ts"
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.omp\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/omp-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.omp\agent\extensions\skills-autocomplete.ts"
 ```
 
 ## Install: plain `pi`
@@ -68,16 +68,15 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\.omp\agent\extensions" | O
 Create the plain `pi` extension directory and download the plain `pi` extension file into it:
 
 ```bash
-mkdir -p "$HOME/.pi/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/pi-omp-skills-autocomplete/main/pi-skills-autocomplete.ts -o "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
+mkdir -p "$HOME/.pi/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/pi-skills-autocomplete.ts -o "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
 ```
 
 On Windows PowerShell:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.pi\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/YOUR_GITHUB_USER/pi-omp-skills-autocomplete/main/pi-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.pi\agent\extensions\pi-skills-autocomplete.ts"
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.pi\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/pi-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.pi\agent\extensions\pi-skills-autocomplete.ts"
 ```
 
-Replace `YOUR_GITHUB_USER` with the actual GitHub owner after publishing this repository.
 
 ## Verify installation
 
