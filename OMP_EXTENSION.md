@@ -136,7 +136,7 @@ Custom editor behavior:
 - Completion must never insert a skill name without the leading `$`.
 - Popup rows must remain one-line. Do not enable `wrapDescription: true`; long descriptions should be truncated by the TUI.
 
-- Initialize the OMP module-local theme with `setThemeInstance(theme)` before constructing the custom editor. The base `CustomEditor` magic-keyword gradient reads that singleton while rendering.
+- Initialize the OMP module-local theme with `setThemeInstance(ctx.ui.theme)` before constructing the custom editor. The factory's `theme` parameter is only an `EditorTheme`; the base `CustomEditor` magic-keyword gradient needs the full OMP `Theme`.
 Composer decoration may use ANSI styling because it happens before the user message renderer. Do not use ANSI styling inside `UserMessageComponent` Markdown rendering.
 
 ## Hidden model context injection
@@ -321,7 +321,7 @@ For behavior changes, also run a loader smoke test that patches `runtime.getComm
 - hidden `message.display` is `false`;
 - hidden `message.details.skills` contains only valid matched skill names;
 - renderer compatibility path returns `UserMessageComponent` and does not throw.
-- editor initialization calls `setThemeInstance(theme)` before constructing `SkillsAutocompleteEditor`, so typing `orchestrate` renders without `theme.getColorMode` errors.
+- editor initialization calls `setThemeInstance(ctx.ui.theme)` before constructing `SkillsAutocompleteEditor`, so typing `orchestrate` renders without `theme.getColorMode` errors.
 
 Focused renderer smoke tests should include a prompt like:
 
@@ -377,4 +377,4 @@ Expected renderer-path facts:
 
 10. Typing `orchestrate` in the custom composer crashed with `theme.getColorMode` on an undefined theme.
     - Cause: the extension-loaded `@oh-my-pi/pi-coding-agent` module had its own uninitialized theme singleton; the crash stayed dormant until OMP's magic-keyword gradient rendered.
-    - Guard: call `setThemeInstance(theme)` in the editor factory before constructing `SkillsAutocompleteEditor`, and smoke-test the installed extension by typing `orchestrate`.
+    - Guard: call `setThemeInstance(ctx.ui.theme)` in the editor factory before constructing `SkillsAutocompleteEditor`; do not pass the narrower `EditorTheme`. Smoke-test the installed extension by typing `orchestrate`.

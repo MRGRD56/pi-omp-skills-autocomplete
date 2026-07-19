@@ -299,7 +299,7 @@ export default function skillsAutocomplete(pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 
 		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, _keybindings: KeybindingsManager) => {
-			setThemeInstance(theme);
+			setThemeInstance(ctx.ui.theme);
 			const editor = new SkillsAutocompleteEditor(tui, theme, current => createSkillProvider(current, refreshSkills), refreshSkills);
 			editor.setUseTerminalCursor(tui.getShowHardwareCursor());
 			return editor;
