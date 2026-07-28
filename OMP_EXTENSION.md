@@ -38,7 +38,9 @@ OMP imports from OMP packages only:
 import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
 import { SelectList, getKeybindings } from "@oh-my-pi/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { CustomEditor, UserMessageComponent, setThemeInstance } from "@oh-my-pi/pi-coding-agent";
+import { CustomEditor } from "@oh-my-pi/pi-coding-agent/modes/components/custom-editor";
+import { UserMessageComponent } from "@oh-my-pi/pi-coding-agent/modes/components/user-message";
+import { setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 ```
 
 Do not import plain `pi` packages in this file:
@@ -378,3 +380,7 @@ Expected renderer-path facts:
 10. Typing `orchestrate` in the custom composer crashed with `theme.getColorMode` on an undefined theme.
     - Cause: the extension-loaded `@oh-my-pi/pi-coding-agent` module had its own uninitialized theme singleton; the crash stayed dormant until OMP's magic-keyword gradient rendered.
     - Guard: call `setThemeInstance(ctx.ui.theme)` in the editor factory before constructing `SkillsAutocompleteEditor`; do not pass the narrower `EditorTheme`. Smoke-test the installed extension by typing `orchestrate`.
+
+11. OMP startup spent several seconds loading this extension and became much slower with cold filesystem caches.
+    - Cause: the runtime import from the `@oh-my-pi/pi-coding-agent` package root resolves to `src/index.ts` in npm installations and loads the complete source module graph.
+    - Guard: keep runtime imports on the narrow component/theme subpaths above; keep `ExtensionAPI` and `ExtensionContext` as type-only root imports.

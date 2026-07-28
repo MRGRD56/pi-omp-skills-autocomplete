@@ -1,7 +1,9 @@
 import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
 import { SelectList, getKeybindings } from "@oh-my-pi/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { CustomEditor, UserMessageComponent, setThemeInstance } from "@oh-my-pi/pi-coding-agent";
+import { CustomEditor } from "@oh-my-pi/pi-coding-agent/modes/components/custom-editor";
+import { UserMessageComponent } from "@oh-my-pi/pi-coding-agent/modes/components/user-message";
+import { setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 
 const CUSTOM_TYPE = "skills-autocomplete-prompt";
 const SKILL_PREFIX = "skill:";
