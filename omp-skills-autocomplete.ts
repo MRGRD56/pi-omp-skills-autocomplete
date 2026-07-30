@@ -1,9 +1,6 @@
 import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
 import { SelectList, getKeybindings } from "@oh-my-pi/pi-tui";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { CustomEditor } from "@oh-my-pi/pi-coding-agent/modes/components/custom-editor";
-import { UserMessageComponent } from "@oh-my-pi/pi-coding-agent/modes/components/user-message";
-import { setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { CustomEditor, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 const CUSTOM_TYPE = "skills-autocomplete-prompt";
 const SKILL_PREFIX = "skill:";
@@ -149,7 +146,8 @@ function createSkillProvider(current: AutocompleteProvider, getCurrentSkills: ()
 	};
 }
 
-class SkillsAutocompleteEditor extends CustomEditor {
+function createSkillsAutocompleteEditor(BaseEditor: typeof CustomEditor) {
+	return class SkillsAutocompleteEditor extends BaseEditor {
 	#providerFactory: (current: AutocompleteProvider) => AutocompleteProvider;
 	#getCurrentSkills: () => SkillInfo[];
 	#baseDecorateText: (text: string) => string;
@@ -255,6 +253,7 @@ class SkillsAutocompleteEditor extends CustomEditor {
 		this.invalidate();
 		this.tui.requestRender(true);
 	}
+	};
 }
 
 function findMentionedSkills(text: string, skills: readonly SkillInfo[]): string[] {
@@ -274,6 +273,7 @@ function formatMentionedSkillsContext(matchedSkills: readonly string[]): string 
 
 export default function skillsAutocomplete(pi: ExtensionAPI): void {
 	let skills: SkillInfo[] = [];
+	const SkillsAutocompleteEditor = createSkillsAutocompleteEditor(pi.pi.CustomEditor);
 	const refreshSkills = () => {
 		skills = getSkills(pi);
 		return skills;
@@ -290,10 +290,10 @@ export default function skillsAutocomplete(pi: ExtensionAPI): void {
 	});
 
 	pi.registerMessageRenderer<RenderDetails>(CUSTOM_TYPE, (message, _options, theme) => {
-		setThemeInstance(theme);
+		pi.pi.setThemeInstance(theme);
 		const details = message.details ?? {};
 		const displayText = details.displayText ?? message.content;
-		return new UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
+		return new pi.pi.UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
 	});
 
 	pi.on("session_start", (_event, ctx: ExtensionContext) => {
@@ -301,7 +301,7 @@ export default function skillsAutocomplete(pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 
 		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, _keybindings: KeybindingsManager) => {
-			setThemeInstance(ctx.ui.theme);
+			pi.pi.setThemeInstance(ctx.ui.theme);
 			const editor = new SkillsAutocompleteEditor(tui, theme, current => createSkillProvider(current, refreshSkills), refreshSkills);
 			editor.setUseTerminalCursor(tui.getShowHardwareCursor());
 			return editor;

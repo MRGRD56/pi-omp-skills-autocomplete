@@ -37,10 +37,7 @@ OMP imports from OMP packages only:
 ```ts
 import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
 import { SelectList, getKeybindings } from "@oh-my-pi/pi-tui";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { CustomEditor } from "@oh-my-pi/pi-coding-agent/modes/components/custom-editor";
-import { UserMessageComponent } from "@oh-my-pi/pi-coding-agent/modes/components/user-message";
-import { setThemeInstance } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { CustomEditor, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 ```
 
 Do not import plain `pi` packages in this file:
@@ -50,7 +47,7 @@ Do not import plain `pi` packages in this file:
 @earendil-works/pi-tui
 ```
 
-OMP owns the custom editor and renderer implementation. These runtime imports must not leak into `pi-skills-autocomplete.ts`.
+OMP owns the custom editor and renderer implementation. Runtime coding-agent values come from the injected `pi.pi` host namespace so the extension does not load OMP's internal source modules from disk. These dependencies must not leak into `pi-skills-autocomplete.ts`.
 
 ## Programmatic identifiers
 
@@ -205,17 +202,17 @@ Renderer shape:
 
 ```ts
 pi.registerMessageRenderer<RenderDetails>(CUSTOM_TYPE, (message, _options, theme) => {
-	setThemeInstance(theme);
+	pi.pi.setThemeInstance(theme);
 	const details = message.details ?? {};
 	const displayText = details.displayText ?? message.content;
-	return new UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
+	return new pi.pi.UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
 });
 ```
 
 Rules:
 
-- Use `UserMessageComponent` from `@oh-my-pi/pi-coding-agent`.
-- Call `setThemeInstance(theme)` before constructing `UserMessageComponent`.
+- Use `UserMessageComponent` from the injected `pi.pi` host namespace.
+- Call `pi.pi.setThemeInstance(theme)` before constructing `UserMessageComponent`.
 - Pass visually transformed `displayText` to `UserMessageComponent`; never render the hidden context as the user prompt.
 - Do not render a custom `Container` / `Text("You")` frame.
 - Do not instantiate `Markdown` directly unless a valid Markdown theme is passed.
@@ -382,5 +379,5 @@ Expected renderer-path facts:
     - Guard: call `setThemeInstance(ctx.ui.theme)` in the editor factory before constructing `SkillsAutocompleteEditor`; do not pass the narrower `EditorTheme`. Smoke-test the installed extension by typing `orchestrate`.
 
 11. OMP startup spent several seconds loading this extension and became much slower with cold filesystem caches.
-    - Cause: the runtime import from the `@oh-my-pi/pi-coding-agent` package root resolves to `src/index.ts` in npm installations and loads the complete source module graph.
-    - Guard: keep runtime imports on the narrow component/theme subpaths above; keep `ExtensionAPI` and `ExtensionContext` as type-only root imports.
+    - Cause: runtime imports from the coding-agent package root or internal component/theme subpaths make a compiled OMP process read and transpile the installed source module graph. After `omp update` or a reboot, cold filesystem and antivirus caches amplify that work.
+    - Guard: keep `CustomEditor`, `ExtensionAPI`, and `ExtensionContext` as type-only imports; obtain `CustomEditor`, `UserMessageComponent`, and `setThemeInstance` from the injected `pi.pi` host namespace. Keep only the bundled `@oh-my-pi/pi-tui` root as a runtime package import.
