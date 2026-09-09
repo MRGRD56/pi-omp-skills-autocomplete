@@ -378,3 +378,7 @@ Expected renderer-path facts:
 11. OMP startup spent several seconds loading this extension and became much slower with cold filesystem caches.
     - Cause: runtime imports from the coding-agent package root or internal component/theme subpaths make a compiled OMP process read and transpile the installed source module graph. After `omp update` or a reboot, cold filesystem and antivirus caches amplify that work.
     - Guard: keep `CustomEditor`, `ExtensionAPI`, and `ExtensionContext` as type-only imports; obtain `CustomEditor`, `UserMessageComponent`, and `setThemeInstance` from the injected `pi.pi` host namespace. Keep only the bundled `@oh-my-pi/pi-tui` root as a runtime package import.
+
+12. Typing the first character in OMP 18.0.0 crashed in `renderText` while reading `context.line`.
+    - Cause: OMP 18 added an `EditorTextDecorationContext` second argument to `decorateText(text, context)`. The extension wrapper forwarded only `text`, so the base `CustomEditor` received `undefined` context.
+    - Guard: the composer decoration wrapper must forward the optional decoration context unchanged to the base decorator. Keep it optional in the extension compatibility type so the same source still loads on OMP 17.x.

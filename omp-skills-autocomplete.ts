@@ -17,6 +17,12 @@ type RenderDetails = {
 	skills?: string[];
 };
 
+type EditorDecorationContext = {
+	line: number;
+	startCol: number;
+	endCol: number;
+};
+
 
 function getSkillNameSet(skills: readonly (SkillInfo | string)[]): Set<string> {
 	return new Set(skills.map(skill => (typeof skill === "string" ? skill : skill.name)));
@@ -150,7 +156,7 @@ function createSkillsAutocompleteEditor(BaseEditor: typeof CustomEditor) {
 	return class SkillsAutocompleteEditor extends BaseEditor {
 	#providerFactory: (current: AutocompleteProvider) => AutocompleteProvider;
 	#getCurrentSkills: () => SkillInfo[];
-	#baseDecorateText: (text: string) => string;
+	#baseDecorateText: (text: string, context?: EditorDecorationContext) => string;
 	#popupList: SelectList | undefined;
 	#popupPrefix = "";
 	#popupSignature = "";
@@ -166,7 +172,8 @@ function createSkillsAutocompleteEditor(BaseEditor: typeof CustomEditor) {
 		this.#providerFactory = providerFactory;
 		this.#getCurrentSkills = getCurrentSkills;
 		this.#baseDecorateText = this.decorateText.bind(this);
-		this.decorateText = (text: string) => highlightSkillTokens(this.#baseDecorateText(text), this.#getCurrentSkills());
+		this.decorateText = (text: string, context?: EditorDecorationContext) =>
+			highlightSkillTokens(this.#baseDecorateText(text, context), this.#getCurrentSkills());
 	}
 
 	override setAutocompleteProvider(provider: AutocompleteProvider): void {
