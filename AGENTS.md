@@ -15,6 +15,7 @@ Keep target-specific implementation details in the target guide files:
 ```text
 omp-skills-autocomplete.ts  # OMP extension source
 pi-skills-autocomplete.ts   # plain pi extension source
+package.json                # OMP and plain pi package manifests
 README.md                   # Human usage and installation guide
 AGENTS.md                   # General development guide for AI agents
 OMP_EXTENSION.md            # OMP-specific implementation guide
@@ -40,73 +41,56 @@ Before changing a target-specific file, read the matching guide:
 - Changing `pi-skills-autocomplete.ts` or plain `pi` behavior: read `PI_EXTENSION.md`.
 - Changing shared docs or repo workflow: read this file and any target guide touched by the change.
 
-## Deployment paths
+## Installation and deployment
 
-OMP installed path:
-
-```text
-$HOME/.omp/agent/extensions/skills-autocomplete.ts
-```
-
-Plain `pi` installed path:
+The repository is one package with separate target entrypoints:
 
 ```text
-$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts
+package.json#omp.extensions -> ./omp-skills-autocomplete.ts
+package.json#pi.extensions  -> ./pi-skills-autocomplete.ts
 ```
 
-Windows paths used on this workstation:
-
-```text
-C:/Users/SU/.omp/agent/extensions/skills-autocomplete.ts
-C:/Users/SU/.pi/agent/extensions/pi-skills-autocomplete.ts
-```
-
-Bash deployment from repository root:
+Install the published GitHub repository:
 
 ```bash
-cp ./omp-skills-autocomplete.ts "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
-cp ./pi-skills-autocomplete.ts "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
+pi install git:github.com/MRGRD56/pi-omp-skills-autocomplete
 ```
 
-If `$HOME` is unavailable in the shell, use the explicit Windows paths above.
+Use the working checkout during development:
 
-PowerShell deployment from repository root:
-
-```powershell
-Copy-Item .\omp-skills-autocomplete.ts "$env:USERPROFILE\.omp\agent\extensions\skills-autocomplete.ts" -Force
-Copy-Item .\pi-skills-autocomplete.ts "$env:USERPROFILE\.pi\agent\extensions\pi-skills-autocomplete.ts" -Force
+```bash
+omp plugin link .
+pi install .
 ```
+
+Use `pi -e .` instead when the plain `pi` package should load only for one run.
+
+Do not copy either entrypoint into `$HOME/.omp/agent/extensions` or `$HOME/.pi/agent/extensions`. Legacy copied files can load alongside package-managed entrypoints and register every hook twice.
 
 ## Verification matrix
 
-After changing `omp-skills-autocomplete.ts`, run at minimum:
+Check both source entrypoints:
 
 ```bash
-bun --check ./omp-skills-autocomplete.ts
+bun run check
 ```
 
-After changing `pi-skills-autocomplete.ts`, run at minimum:
+After linking the OMP package:
 
 ```bash
-bun --check ./pi-skills-autocomplete.ts
-pi -e ./pi-skills-autocomplete.ts
-```
-
-After copying to installed OMP path, run:
-
-```bash
-bun --check "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
+omp plugin list --json
 omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
 ```
 
-After copying to installed plain `pi` path, run:
+After installing the local plain `pi` package:
 
 ```bash
-bun --check "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
-pi -e "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
+pi list
+pi -e .
 ```
 
-Use explicit Windows paths if `$HOME` resolves incorrectly.
+The OMP manifest must contain only `./omp-skills-autocomplete.ts`; the plain `pi` manifest must contain only `./pi-skills-autocomplete.ts`. The old copied extension files must be absent.
 
 Behavior changes require focused smoke tests that cover the changed branch. See the target-specific guide for required smoke scenarios.
 
@@ -118,9 +102,9 @@ Behavior changes require focused smoke tests that cover the changed branch. See 
 4. Keep the two entrypoints separate unless a shared extraction is explicitly planned and verified for both targets.
 5. Make surgical edits in repository files first.
 6. Run target-specific checks.
-7. Deploy to installed path only when the user asks for local installation/hotfix or the task explicitly requires it.
-8. Verify the installed copy after deployment.
-9. Update docs when behavior, deployment, verification, or regression knowledge changes.
+7. Install or link the package only when the user asks for local installation or the task explicitly requires it.
+8. Verify the package through the target manager and confirm no legacy copied entrypoint remains.
+9. Update docs when behavior, installation, verification, or regression knowledge changes.
 
 ## Target separation
 

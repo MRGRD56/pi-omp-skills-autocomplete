@@ -4,7 +4,7 @@ This document captures the implementation and development rules for the plain `p
 
 OMP-specific behavior lives in `omp-skills-autocomplete.ts`. Do not merge the runtime imports or lifecycle hooks unless both targets are revalidated.
 
-## File and install path
+## Package manifest and installation
 
 Source file:
 
@@ -12,23 +12,25 @@ Source file:
 pi-skills-autocomplete.ts
 ```
 
-Local install path:
+The repository-root `package.json` exposes only this file to plain `pi`:
 
-```text
-$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts
+```json
+{
+  "pi": {
+    "extensions": ["./pi-skills-autocomplete.ts"]
+  }
+}
 ```
 
-Windows local install path used on this workstation:
-
-```text
-C:/Users/SU/.pi/agent/extensions/pi-skills-autocomplete.ts
-```
-
-Install from repository root:
+Install from GitHub:
 
 ```bash
-mkdir -p "C:/Users/SU/.pi/agent/extensions" && cp ./pi-skills-autocomplete.ts "C:/Users/SU/.pi/agent/extensions/pi-skills-autocomplete.ts"
+pi install git:github.com/MRGRD56/pi-omp-skills-autocomplete
 ```
+
+Use `pi install .` for a persistent local checkout or `pi -e .` for a temporary development load.
+
+Do not copy this file to `$HOME/.pi/agent/extensions`. A copied file bypasses package management and can load alongside the packaged entrypoint.
 
 ## Import boundary
 
@@ -222,15 +224,10 @@ From repository root:
 
 ```bash
 bun --check ./pi-skills-autocomplete.ts
-pi -e ./pi-skills-autocomplete.ts
+pi -e .
 ```
 
-Installed copy check on this workstation:
-
-```bash
-bun --check "C:/Users/SU/.pi/agent/extensions/pi-skills-autocomplete.ts"
-pi -e "C:/Users/SU/.pi/agent/extensions/pi-skills-autocomplete.ts"
-```
+After a persistent local installation, `pi list` must show the repository package. The legacy `$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts` file must not exist.
 
 Behavior smoke tests should cover:
 

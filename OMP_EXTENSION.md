@@ -4,7 +4,7 @@ This document captures the OMP-specific implementation, behavior contract, devel
 
 Plain `pi` behavior lives in `PI_EXTENSION.md` and `pi-skills-autocomplete.ts`. Do not merge OMP runtime imports or custom editor logic into the plain `pi` entrypoint.
 
-## File and install path
+## Package manifest and installation
 
 Source file:
 
@@ -12,23 +12,29 @@ Source file:
 omp-skills-autocomplete.ts
 ```
 
-Local OMP install path:
+The repository-root `package.json` exposes only this file to OMP:
 
-```text
-$HOME/.omp/agent/extensions/skills-autocomplete.ts
+```json
+{
+  "omp": {
+    "extensions": ["./omp-skills-autocomplete.ts"]
+  }
+}
 ```
 
-Windows local install path used on this workstation:
-
-```text
-C:/Users/SU/.omp/agent/extensions/skills-autocomplete.ts
-```
-
-Install from repository root:
+Install from GitHub:
 
 ```bash
-mkdir -p "C:/Users/SU/.omp/agent/extensions" && cp ./omp-skills-autocomplete.ts "C:/Users/SU/.omp/agent/extensions/skills-autocomplete.ts"
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 ```
+
+Link the repository checkout while developing:
+
+```bash
+omp plugin link .
+```
+
+Do not copy this file to `$HOME/.omp/agent/extensions`. A copied file bypasses package management and can load alongside the packaged entrypoint.
 
 ## Import boundary
 
@@ -294,22 +300,13 @@ Default export behavior:
 From repository root:
 
 ```bash
-bun --check ./omp-skills-autocomplete.ts
-```
-
-Installed copy check on this workstation:
-
-```bash
-bun --check "C:/Users/SU/.omp/agent/extensions/skills-autocomplete.ts"
+bun run check
+omp plugin link .
+omp plugin list --json
 omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
 ```
 
-After copying to the OMP extension directory, run:
-
-```bash
-bun --check "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
-omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
-```
+`omp plugin list --json` must show one enabled `pi-omp-skills-autocomplete` package whose manifest contains only `./omp-skills-autocomplete.ts`. The legacy `$HOME/.omp/agent/extensions/skills-autocomplete.ts` file must not exist.
 
 For behavior changes, also run a loader smoke test that patches `runtime.getCommands` and verifies:
 

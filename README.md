@@ -56,32 +56,27 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 
 ## Install: OMP
 
-Create the OMP extension directory and download the OMP extension file into it:
+Install the OMP extension directly from GitHub:
 
 ```bash
-mkdir -p "$HOME/.omp/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/omp-skills-autocomplete.ts -o "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 ```
 
-On Windows PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.omp\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/omp-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.omp\agent\extensions\skills-autocomplete.ts"
-```
+Reload plugins in an active OMP session with `/reload-plugins`, or restart OMP.
 
 ## Install: plain `pi`
 
-Create the plain `pi` extension directory and download the plain `pi` extension file into it:
+Install the plain `pi` extension from the same GitHub repository:
 
 ```bash
-mkdir -p "$HOME/.pi/agent/extensions" && curl -fsSL https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/pi-skills-autocomplete.ts -o "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
+pi install git:github.com/MRGRD56/pi-omp-skills-autocomplete
 ```
 
-On Windows PowerShell:
+The equivalent full-URL form is:
 
-```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.pi\agent\extensions" | Out-Null; Invoke-WebRequest -Uri "https://raw.githubusercontent.com/MRGRD56/pi-omp-skills-autocomplete/master/pi-skills-autocomplete.ts" -OutFile "$env:USERPROFILE\.pi\agent\extensions\pi-skills-autocomplete.ts"
+```bash
+pi install https://github.com/MRGRD56/pi-omp-skills-autocomplete
 ```
-
 
 ## Verify installation
 
@@ -91,13 +86,13 @@ OMP:
 omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
 ```
 
-plain `pi` development quick test:
+plain `pi`:
 
 ```bash
-pi -e ./pi-skills-autocomplete.ts
+pi list
 ```
 
-A successful load exits without an extension import error. In interactive mode, `/skills-autocomplete-status` reports how many skills are available.
+Both package managers read `package.json` and load only their target-specific entrypoint. In interactive mode, `/skills-autocomplete-status` reports how many skills are available.
 
 ## Usage
 
@@ -136,42 +131,30 @@ omp-skills-autocomplete.ts
 pi-skills-autocomplete.ts
 ```
 
-After editing the OMP entrypoint, copy it to the active OMP extension directory:
+Link the repository as an OMP plugin while developing:
 
 ```bash
-cp omp-skills-autocomplete.ts "$HOME/.omp/agent/extensions/skills-autocomplete.ts"
+omp plugin link .
 ```
 
-On Windows PowerShell:
-
-```powershell
-Copy-Item .\omp-skills-autocomplete.ts "$env:USERPROFILE\.omp\agent\extensions\skills-autocomplete.ts" -Force
-```
-
-After editing the plain `pi` entrypoint, copy it to the active plain `pi` extension directory:
+Load the same checkout temporarily as a plain `pi` package:
 
 ```bash
-cp pi-skills-autocomplete.ts "$HOME/.pi/agent/extensions/pi-skills-autocomplete.ts"
+pi -e .
 ```
 
-On Windows PowerShell:
-
-```powershell
-Copy-Item .\pi-skills-autocomplete.ts "$env:USERPROFILE\.pi\agent\extensions\pi-skills-autocomplete.ts" -Force
-```
-
-Then verify the changed entrypoint:
+Then verify both entrypoints and package manifests:
 
 ```bash
-bun --check ./omp-skills-autocomplete.ts
-bun --check ./pi-skills-autocomplete.ts
-pi -e ./pi-skills-autocomplete.ts
+bun run check
+omp plugin list --json
+pi -e .
 ```
 
 ## Notes
 
 - The extensions intentionally avoid changing core OMP/TUI or plain `pi` code.
-- OMP and plain `pi` remain separate files and installation paths.
+- OMP and plain `pi` remain separate entrypoints selected by the `omp` and `pi` manifests in `package.json`.
 - OMP imports from `@oh-my-pi/pi-coding-agent` and `@oh-my-pi/pi-tui`.
 - plain `pi` imports types from `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`.
 - Both targets inject skill context as hidden context while preserving the visible prompt as normal user text.
