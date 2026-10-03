@@ -7,8 +7,10 @@
 
 This repository contains separate `$skill` autocomplete extension entrypoints for **Oh My Pi / OMP** and plain **`pi`**.
 
-- `omp-skills-autocomplete.ts` targets OMP and installs as `~/.omp/agent/extensions/skills-autocomplete.ts`.
-- `pi-skills-autocomplete.ts` targets plain `pi` and installs as `~/.pi/agent/extensions/pi-skills-autocomplete.ts`.
+- `omp-skills-autocomplete.ts` targets OMP and is the package-managed entrypoint exposed by the `omp` manifest in `package.json` (`omp.extensions`).
+- `pi-skills-autocomplete.ts` targets plain `pi` and is the package-managed entrypoint exposed by the `pi` manifest in `package.json` (`pi.extensions`).
+
+Install either one through its package manager. Do not copy an entrypoint into `~/.omp/agent/extensions` or `~/.pi/agent/extensions`: a copied file bypasses package management and can load alongside the packaged entrypoint.
 
 Both versions discover installed skills from `skill:<name>` commands, complete `$skill-name` with a leading `$`, and add valid skill mentions to the model context without replacing the original user text.
 
@@ -32,13 +34,17 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 
 ### OMP
 
-- Installs a custom editor for the OMP composer.
+- Stacks a native autocomplete provider (`ctx.ui.addAutocompleteProvider`) with a custom composer editor (`ctx.ui.setEditorComponent`); the built-in provider is wrapped, not replaced.
+- Shows exactly one skill popup at a time: the native menu owns the screen while it is active, and the extension's own composer popup appears only once it is not.
+- Completes the whole `$token` under the caret, so Tab or Enter works with the caret inside the token and preserves the text after it.
 - Keeps a custom renderer compatibility path for older displayed `skills-autocomplete-prompt` entries.
 - Deleting `$` or `$token` closes the popup immediately, including an empty prompt.
-- Escape cancels the popup without changing the prompt.
+- Escape cancels the popup (and any pending native menu) without changing the prompt.
 - Popup rows are one-line; long descriptions are truncated by the TUI instead of wrapping.
 - Valid skill context is injected as a hidden `skills-autocomplete-prompt` message after the normal user prompt.
 - Post-submit `$skill` highlighting is intentionally not applied to normal OMP user messages; OMP exposes custom renderers only for custom messages, and this extension prefers preserving a true user message over a displayed custom-message substitute.
+- Tested against OMP 18.5.0.
+- Some core OMP Vim modes can still consume Escape while a native list is active; the default composer path is the verified one.
 
 ### plain `pi`
 
@@ -49,7 +55,7 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 
 ## Requirements
 
-- OMP install: OMP available as `omp`.
+- OMP install: OMP available as `omp` (tested against OMP 18.5.0).
 - plain `pi` install: plain `pi` available as `pi`.
 - Bun runtime available to extension loading.
 - Existing skills exposed as `skill:<name>` commands.
@@ -62,7 +68,7 @@ Install the OMP extension directly from GitHub:
 omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 ```
 
-Reload plugins in an active OMP session with `/reload-plugins`, or restart OMP.
+Restart the active OMP session after installing or linking; the extension is loaded at startup.
 
 ## Install: plain `pi`
 
@@ -143,10 +149,17 @@ Load the same checkout temporarily as a plain `pi` package:
 pi -e .
 ```
 
+Install dependencies once, then run the focused behavior tests and the compile check:
+
+```bash
+bun install
+bun test
+bun run check
+```
+
 Then verify both entrypoints and package manifests:
 
 ```bash
-bun run check
 omp plugin list --json
 pi -e .
 ```

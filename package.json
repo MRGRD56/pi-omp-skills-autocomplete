@@ -1,6 +1,6 @@
 {
   "name": "pi-omp-skills-autocomplete",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "$skill autocomplete extensions for Oh My Pi and plain pi.",
@@ -26,6 +26,11 @@
     ]
   },
   "scripts": {
-    "check": "bun -e 'const result = await Bun.build({ entrypoints: [\"./omp-skills-autocomplete.ts\", \"./pi-skills-autocomplete.ts\"], target: \"bun\", external: [\"*\"], write: false }); if (!result.success) { for (const log of result.logs) console.error(log); process.exit(1); }'"
+    "check": "bun -e 'const result = await Bun.build({ entrypoints: [\"./omp-skills-autocomplete.ts\", \"./pi-skills-autocomplete.ts\"], target: \"bun\", external: [\"*\"], write: false }); if (!result.success) { for (const log of result.logs) console.error(log); process.exit(1); }'",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.5.0",
+    "@oh-my-pi/pi-tui": "18.5.0"
   }
 }
