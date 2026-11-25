@@ -1,6 +1,9 @@
-import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
-import { SelectList } from "@oh-my-pi/pi-tui";
-import type { CustomEditor, CustomMessageContent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { AutocompleteProviderFactory, ComposerDecorator, ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { jsx } from "@oh-my-pi/pi-tui";
+
+type AutocompleteProvider = Parameters<AutocompleteProviderFactory>[0];
+type AutocompleteItem = Parameters<AutocompleteProvider["applyCompletion"]>[3];
+type Composer = InstanceType<ExtensionAPI["pi"]["InteractiveMode"]>["composer"];
 
 const CUSTOM_TYPE = "skills-autocomplete-prompt";
 const SKILL_PREFIX = "skill:";
@@ -23,25 +26,14 @@ type RenderDetails = {
 	skills?: string[];
 };
 
-type EditorDecorationContext = {
-	line: number;
-	startCol: number;
-	endCol: number;
-};
-
-// Structural slice of the injected OMP theme (`ctx.ui.theme`) the composer
-// decoration needs, kept local so the extension does not widen its host types.
-type DecorationTheme = {
-	fg(color: string, text: string): string;
-	bold(text: string): string;
-};
-
-// The wrapped provider reports every applied $-completion here. Core invokes
-// `onApplied` after installing the new text, which is the only reliable signal
-// for acceptance paths that never reach this editor's `handleInput` (pointer
-// selection) and for acceptances that leave the text unchanged.
-type SkillSignals = {
-	notifyNativeSkillApplied?: () => void;
+const decorateSkills = (text: string, names: ReadonlySet<string>): ReturnType<ComposerDecorator> => {
+	const ranges: Array<{ from: number; to: number; s: string }> = [];
+	for (const match of text.matchAll(ALL_TOKENS_RE)) {
+		if (!names.has(match[2]!)) continue;
+		const from = match.index + match[1]!.length;
+		ranges.push({ from, to: match.index + match[0].length, s: "accent strong" });
+	}
+	return ranges;
 };
 
 // The `$token` under the caret: `start`/`end` cover both halves of the token
@@ -54,21 +46,8 @@ type SkillSpan = {
 	prefix: string;
 };
 
-
 function getSkillNameSet(skills: readonly (SkillInfo | string)[]): Set<string> {
 	return new Set(skills.map(skill => (typeof skill === "string" ? skill : skill.name)));
-}
-
-function highlightSkillTokens(
-	text: string,
-	skillNames: ReadonlySet<string>,
-	getTheme: () => DecorationTheme,
-): string {
-	const theme = getTheme();
-	return text.replace(/(^|[\s([{,;])\$([A-Za-z0-9_-]+)/g, (whole, lead: string, skillName: string) => {
-		if (!skillNames.has(skillName)) return whole;
-		return `${lead}${theme.bold(theme.fg("accent", `$${skillName}`))}`;
-	});
 }
 
 function markdownHighlightSkillTokens(text: string, skills: readonly (SkillInfo | string)[]): string {
@@ -84,7 +63,7 @@ function markdownHighlightSkillTokens(text: string, skills: readonly (SkillInfo 
 }
 
 /** Text of a custom message's content; mirrors core's own extraction (text parts joined by newlines). */
-function customMessageText(content: CustomMessageContent): string {
+function customMessageText(content: Parameters<Parameters<ExtensionAPI["registerMessageRenderer"]>[1]>[0]["content"]): string {
 	if (typeof content === "string") return content;
 	const parts: string[] = [];
 	for (const part of content) {
@@ -165,17 +144,9 @@ function buildSkillItems(skills: SkillInfo[], query: string): AutocompleteItem[]
 		}));
 }
 
-/** UTF-16 offset of `[line, col)` in the buffer text (`lines` joined by `\n`). */
-function textOffset(lines: readonly string[], line: number, col: number): number {
-	let offset = 0;
-	for (let index = 0; index < line; index += 1) offset += (lines[index]?.length ?? 0) + 1;
-	return offset + col;
-}
-
 function createSkillProvider(
 	current: AutocompleteProvider,
 	getCache: () => SkillCache,
-	onSkillApplied: () => void,
 ): AutocompleteProvider {
 	const provider: AutocompleteProvider = {
 		async getSuggestions(lines, cursorLine, cursorCol, signal, onPartial) {
@@ -190,20 +161,12 @@ function createSkillProvider(
 
 		applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
 			if (prefix.startsWith("$") && item.value.startsWith("$")) {
-				// A stale accept (the buffer moved on since the list was built, e.g.
-				// a pointer click) leaves the prompt untouched: rewriting characters
-				// that are no longer this token would corrupt unrelated text.
-				const span = findSkillSpan(lines[cursorLine] ?? "", cursorCol);
-				if (!span) return { lines, cursorLine, cursorCol };
 				const line = lines[cursorLine] ?? "";
+				const span = findSkillSpan(line, cursorCol);
+				if (!span || span.prefix !== prefix) return { lines, cursorLine, cursorCol };
 				const next = [...lines];
 				next[cursorLine] = line.slice(0, span.start) + item.value + line.slice(span.end);
-				return {
-					lines: next,
-					cursorLine,
-					cursorCol: span.start + item.value.length,
-					onApplied: onSkillApplied,
-				};
+				return { lines: next, cursorLine, cursorCol: span.start + item.value.length };
 			}
 			return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
 		},
@@ -221,269 +184,103 @@ function createSkillProvider(
 		},
 	};
 
-	// Optional host hooks stay absent unless the wrapped provider has them, so
-	// stacking does not invent capabilities core never sees on the base.
+	// Preserve the host's synchronous completion paths through the wrapper.
 	const syncSlashCompletion = current.trySyncSlashCompletion;
 	if (syncSlashCompletion) provider.trySyncSlashCompletion = syncSlashCompletion.bind(current);
 
 	const syncInlineReplace = current.trySyncInlineReplace;
 	if (syncInlineReplace) provider.trySyncInlineReplace = syncInlineReplace.bind(current);
 
-	const forceFileSuggestions = current.getForceFileSuggestions;
-	if (forceFileSuggestions) {
-		const force = forceFileSuggestions.bind(current);
-		provider.getForceFileSuggestions = async (lines, cursorLine, cursorCol, signal) => {
-			if (signal?.aborted) return null;
-			const span = findSkillSpan(lines[cursorLine] ?? "", cursorCol);
-			if (span) {
-				const items = buildSkillItems(getCache().skills, span.query);
-				if (items.length > 0) return { items, prefix: span.prefix };
-			}
-			return force(lines, cursorLine, cursorCol, signal);
-		};
-	}
+	const model = current.trySyncModelMentionCompletion;
+	if (model) provider.trySyncModelMentionCompletion = model.bind(current);
 
-	const shouldTriggerFileCompletion = current.shouldTriggerFileCompletion;
-	if (shouldTriggerFileCompletion) {
-		const should = shouldTriggerFileCompletion.bind(current);
-		provider.shouldTriggerFileCompletion = (lines, cursorLine, cursorCol) =>
-			findSkillSpan(lines[cursorLine] ?? "", cursorCol) !== null || should(lines, cursorLine, cursorCol);
-	}
+	provider.getForceFileSuggestions = async (lines, cursorLine, cursorCol, signal) => {
+		if (signal?.aborted) return null;
+		const span = findSkillSpan(lines[cursorLine] ?? "", cursorCol);
+		if (span) {
+			const items = buildSkillItems(getCache().skills, span.query);
+			if (items.length > 0) return { items, prefix: span.prefix };
+		}
+		return current.getForceFileSuggestions?.(lines, cursorLine, cursorCol, signal) ?? null;
+	};
+
+	provider.shouldTriggerFileCompletion = (lines, cursorLine, cursorCol) =>
+		findSkillSpan(lines[cursorLine] ?? "", cursorCol) !== null ||
+		current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) !== false;
 
 	return provider;
 }
 
-function createSkillsAutocompleteEditor(BaseEditor: typeof CustomEditor) {
-	return class SkillsAutocompleteEditor extends BaseEditor {
-		#keybindings: KeybindingsManager;
-		#editorTheme: EditorTheme;
-		#getCache: () => SkillCache;
-		#getTheme: () => DecorationTheme;
-		#baseDecorateText: (text: string, context: EditorDecorationContext) => string;
-		#ownList: SelectList | undefined;
-		#ownSignature = "";
-		#suppressedSignature = "";
-		#nativeSkillApplied = false;
+/** OMP 19.2 exposes the composer hooks but not its caret or completion trigger. */
+function registerSkillProvider(
+	pi: ExtensionAPI,
+	register: (factory: AutocompleteProviderFactory) => void,
+	factory: AutocompleteProviderFactory,
+): Composer {
+	const prototype = pi.pi.InteractiveMode.prototype;
+	const original = prototype.addAutocompleteProvider;
+	let composer: Composer | undefined;
+	// Capture the receiver of this synchronous registration only. Never leave a
+	// host method patched while the composer is handling input or another plugin.
+	prototype.addAutocompleteProvider = function (registered) {
+		if (registered === factory) composer = this.composer;
+		original.call(this, registered);
+	};
+	try {
+		register(factory);
+	} finally {
+		prototype.addAutocompleteProvider = original;
+	}
+	if (!composer) throw new Error("OMP did not register the skill provider on an interactive composer");
+	return composer;
+}
 
-		constructor(
-			tui: TUI,
-			theme: EditorTheme,
-			keybindings: KeybindingsManager,
-			getCache: () => SkillCache,
-			getTheme: () => DecorationTheme,
-			signals: SkillSignals,
-		) {
-			super(theme);
-			this.tui = tui;
-			this.#editorTheme = theme;
-			this.#keybindings = keybindings;
-			this.#getCache = getCache;
-			this.#getTheme = getTheme;
-			signals.notifyNativeSkillApplied = () => this.#noteNativeSkillApplied();
-			this.#baseDecorateText = this.decorateText.bind(this);
-			// `context` stays optional for OMP 17.x hosts that call the decorator
-			// with text only; the value itself is forwarded unchanged.
-			this.decorateText = (text: string, context?: EditorDecorationContext) =>
-				highlightSkillTokens(
-					this.#baseDecorateText(text, context as EditorDecorationContext),
-					this.#getCache().names,
-					this.#getTheme,
-				);
-		}
-
-		override render(width: number): readonly string[] {
-			const lines = [...super.render(width)];
-			// Exactly one visible popup: native autocomplete owns the screen while
-			// it is active, the extension list shows only when it is not.
-			if (this.#ownList && !this.isAutocompleteActive()) {
-				lines.push(...this.#ownList.render(width));
-			}
-			return lines;
-		}
-
-		override handleInput(data: string): void {
-			const kb = this.#keybindings;
-
-			// Native autocomplete owns the input while it is active (its list may be
-			// narrowed to no candidate but still pending a debounced refresh). Keep a
-			// prepared extension list in sync so it can surface if native cancels.
-			const submitKey = kb.matches(data, "tui.input.submit");
-			const acceptKey =
-				kb.matches(data, "tui.input.tab") || submitKey || kb.matches(data, "tui.select.confirm") || data === "\n";
-
-			if (this.isAutocompleteActive()) {
-				this.#refreshOwnList(false);
-				const cancels = kb.matches(data, "tui.select.cancel");
-				const canComplete = acceptKey && this.#ownList !== undefined;
-				const beforeRevision = this.textRevision;
-				this.#nativeSkillApplied = false;
-				// A bare LF is Shift+Enter (new line), never the submit path, so it
-				// must not arm the submit guard.
-				const blockSubmit = canComplete && submitKey && data !== "\n";
-				if (blockSubmit) this.disableSubmit = true;
-				try {
-					// Escape has to reach the base pipeline: CustomEditor turns Escape
-					// on a hidden native list into the app interrupt and would leave the
-					// native state (and its pending refresh) alive.
-					if (cancels) super.handleDraftEdit(data);
-					else super.handleInput(data);
-				} finally {
-					if (blockSubmit) this.disableSubmit = false;
-				}
-
-				// The wrapped provider applied a skill: it already dismissed the
-				// completed context, so native acceptance cannot reopen our list.
-				if (this.#nativeSkillApplied) return;
-
-				// Core cancelled a stale native menu without applying anything. Honour
-				// the key press by completing the prepared candidate instead of
-				// dropping it (the first Enter completes rather than submitting).
-				if (
-					canComplete &&
-					this.#ownList &&
-					!this.isAutocompleteActive() &&
-					this.textRevision === beforeRevision
-				) {
-					this.#ownList.handleInput("\n");
-					if (this.#ownList) {
-						this.#clearOwn();
-						this.#requestRender();
-					}
-					return;
-				}
-
-				if (this.#refreshOwnList(cancels)) this.#requestRender();
-				return;
-			}
-
-			if (this.#ownList) {
-				if (
-					kb.matches(data, "tui.select.up") ||
-					kb.matches(data, "tui.select.down") ||
-					kb.matches(data, "tui.select.pageUp") ||
-					kb.matches(data, "tui.select.pageDown")
-				) {
-					this.#ownList.handleInput(data);
-					this.#requestRender();
-					return;
-				}
-
-				if (acceptKey) {
-					// Accept the selection in place; Enter must not submit the prompt.
-					this.#ownList.handleInput("\n");
-					if (this.#ownList) {
-						this.#clearOwn();
-						this.#requestRender();
-					}
-					return;
-				}
-
-				if (kb.matches(data, "tui.select.cancel")) {
-					this.#refreshOwnList(true);
-					this.#requestRender();
-					return;
-				}
-			}
-
-			super.handleInput(data);
-			if (this.#refreshOwnList(false)) this.#requestRender();
-		}
-
-		/**
-		 * The wrapped provider installed a $-completion: core calls this after the
-		 * new text is in place. Pin the completed context as dismissed regardless of
-		 * which key accepted it (Enter, Tab, Right Arrow, pointer click) and even
-		 * when the accepted value left the text unchanged.
-		 */
-		#noteNativeSkillApplied(): void {
-			this.#nativeSkillApplied = true;
-			if (this.#refreshOwnList(true)) this.#requestRender();
-		}
-
-		/**
-		 * Recompute the extension list for the `$token` under the caret. Read-only
-		 * with respect to the popup: it either rebuilds the hidden/visible list or
-		 * clears it. `suppress` pins the current context as dismissed. The context
-		 * identity is the buffer revision plus the caret and the token span, so it
-		 * costs a counter read and cannot survive an edit, undo or caret move.
-		 */
-		#refreshOwnList(suppress: boolean): boolean {
-			const lines = this.getLines();
-			const { line, col } = this.getCursor();
-			const span = findSkillSpan(lines[line] ?? "", col);
-			if (!span) {
-				this.#suppressedSignature = "";
-				return this.#clearOwn();
-			}
-
-			const signature = `${this.textRevision}\u0000${line}\u0000${col}\u0000${span.start}\u0000${span.end}`;
-			if (suppress) {
-				this.#suppressedSignature = signature;
-				return this.#clearOwn();
-			}
-			if (signature === this.#suppressedSignature) return this.#clearOwn();
-			// Any other context (edit, undo, caret move) expires the dismissal for
-			// good instead of leaving a stale pin that could hide a later popup.
-			this.#suppressedSignature = "";
-
-			const items = buildSkillItems(this.#getCache().skills, span.query);
-			if (items.length === 0) return this.#clearOwn();
-
-			const listSignature = `${span.start}\u0000${span.end}\u0000${items.map(item => item.value).join("\u0000")}`;
-			if (this.#ownList && listSignature === this.#ownSignature) return false;
-
-			this.#ownSignature = listSignature;
-			this.#ownList = new SelectList(items, 8, this.#editorTheme.selectList, { overflowSearch: false });
-			this.#ownList.onSelect = item => this.#applyOwnCompletion(item);
-			return true;
-		}
-
-		#clearOwn(): boolean {
-			if (!this.#ownList && !this.#ownSignature) return false;
-			this.#ownList = undefined;
-			this.#ownSignature = "";
-			return true;
-		}
-
-		/** Complete the prepared selection as one undoable host edit over the whole token. */
-		#applyOwnCompletion(item: AutocompleteItem): void {
-			const lines = this.getLines();
-			const { line, col } = this.getCursor();
-			const span = findSkillSpan(lines[line] ?? "", col);
-			const before = this.getText();
-			if (span) {
-				const from = textOffset(lines, line, span.start);
-				this.applyHostEdit({
-					from,
-					to: textOffset(lines, line, span.end),
-					text: item.value,
-					cursor: from + item.value.length,
-					len: before.length,
-				});
-			}
-
-			// Pin the resulting context (even when the token already equalled the
-			// accepted value, so no edit was needed) — the completed token must not
-			// reopen until the cursor or text leaves it.
-			this.#refreshOwnList(true);
-			this.#requestRender();
-		}
-
-		#requestRender(): void {
-			this.invalidate();
-			if (this.onAutocompleteUpdate) this.onAutocompleteUpdate();
-			else this.tui?.requestRender(true);
-		}
+function installSkillTrigger(pi: ExtensionAPI, composer: Composer, getCache: () => SkillCache): () => void {
+	let pendingCaret: number | undefined;
+	const getSpan = (text: string, caret: number): SkillSpan | null => {
+		const start = caret === 0 ? 0 : text.lastIndexOf("\n", caret - 1) + 1;
+		const newline = text.indexOf("\n", caret);
+		const span = findSkillSpan(text.slice(start, newline === -1 ? undefined : newline), caret - start);
+		return span && { ...span, start: span.start + start, end: span.end + start };
+	};
+	const removeEdit = composer.addEditListener(() => {
+		pendingCaret = undefined;
+		if (composer.vimMode() === "normal" || composer.completing()) return;
+		const caret = composer.cursor();
+		const span = getSpan(composer.text(), caret);
+		if (!span || !getCache().skills.some(skill => scoreSkill(span.query, skill.name) > 0)) return;
+		const tab = pi.pi.getKeybindings().keysFor("tui.input.tab")[0];
+		if (!tab) return;
+		pendingCaret = caret;
+		composer.handleDraftKey({ id: tab, kind: "press", raw: "\t" });
+	});
+	const removeKey = composer.addKeyHandler(key => {
+		const kb = pi.pi.getKeybindings();
+		const pending = pendingCaret;
+		pendingCaret = undefined;
+		if (composer.completing() || (composer.vimMode() !== null && composer.vimMode() !== "insert")) return false;
+		const caret = composer.cursor();
+		const tab = kb.matches(key, "tui.input.tab");
+		const acceptPending = pending === caret && (kb.matches(key, "tui.input.submit") || key.raw === "\n");
+		if (!tab && !acceptPending) return false;
+		const span = getSpan(composer.text(), caret);
+		const item = span && buildSkillItems(getCache().skills, span.query)[0];
+		if (!span || !item) return false;
+		composer.replaceRange(span.start, span.end, item.value);
+		return true;
+	});
+	return () => {
+		removeEdit();
+		removeKey();
 	};
 }
 
-function findMentionedSkills(text: string, skills: readonly SkillInfo[]): string[] {
-	const skillNames = new Set(skills.map(skill => skill.name));
+function findMentionedSkills(text: string, skillNames: ReadonlySet<string>): string[] {
 	const matchedSkills = new Set<string>();
-	text.replace(ALL_TOKENS_RE, (_whole, _lead: string, skillName: string) => {
+	for (const match of text.matchAll(ALL_TOKENS_RE)) {
+		const skillName = match[2]!;
 		if (skillNames.has(skillName)) matchedSkills.add(skillName);
-		return "";
-	});
+	}
 	return [...matchedSkills];
 }
 
@@ -498,9 +295,7 @@ export default function skillsAutocomplete(pi: ExtensionAPI): void {
 		cache = buildSkillCache(pi);
 		return cache;
 	};
-	const SkillsAutocompleteEditor = createSkillsAutocompleteEditor(pi.pi.CustomEditor);
-	const skillSignals: SkillSignals = {};
-	let editorInstalled = false;
+	let disposeComposer: (() => void) | undefined;
 
 	pi.setLabel("$ Skills Autocomplete");
 
@@ -512,41 +307,39 @@ export default function skillsAutocomplete(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerMessageRenderer<RenderDetails>(CUSTOM_TYPE, (message, _options, theme) => {
-		pi.pi.setThemeInstance(theme);
+	pi.registerMessageRenderer<RenderDetails>(CUSTOM_TYPE, message => {
 		const details = message.details ?? {};
 		const displayText = details.displayText ?? customMessageText(message.content);
-		return new pi.pi.UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
+		return jsx("md", { text: markdownHighlightSkillTokens(displayText, details.skills ?? []) });
 	});
 
-	pi.on("session_start", (_event, ctx: ExtensionContext) => {
+	pi.on("session_start", (_event, ctx) => {
 		refreshCache();
-		if (!ctx.hasUI || editorInstalled) return;
+		const hooks = ctx.ui.composer;
+		if (!hooks || disposeComposer) return;
 
-		editorInstalled = true;
-		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
-			pi.pi.setThemeInstance(ctx.ui.theme);
-			const editor = new SkillsAutocompleteEditor(
-				tui,
-				theme,
-				keybindings,
-				() => cache,
-				() => ctx.ui.theme,
-				skillSignals,
-			);
-			editor.setUseTerminalCursor(tui.getShowHardwareCursor());
-			return editor;
-		});
-		// Installed after the editor so the host rebuilds the wrapped provider onto it.
-		ctx.ui.addAutocompleteProvider(current => {
+		let active = true;
+		const composer = registerSkillProvider(pi, ctx.ui.addAutocompleteProvider, current => {
+			if (!active) return current;
 			refreshCache();
-			return createSkillProvider(current, () => cache, () => skillSignals.notifyNativeSkillApplied?.());
+			return createSkillProvider(current, () => cache);
 		});
+		const removeTrigger = installSkillTrigger(pi, composer, () => cache);
+		const removeDecorator = hooks.addDecorator(text => decorateSkills(text, cache.names));
+		disposeComposer = () => {
+			active = false;
+			removeTrigger();
+			removeDecorator();
+		};
+	});
+	pi.on("session_shutdown", () => {
+		disposeComposer?.();
+		disposeComposer = undefined;
 	});
 
 	pi.on("before_agent_start", event => {
 		const currentCache = refreshCache();
-		const matchedSkills = findMentionedSkills(event.prompt, currentCache.skills);
+		const matchedSkills = findMentionedSkills(event.prompt, currentCache.names);
 		const content = formatMentionedSkillsContext(matchedSkills);
 		if (!content) return;
 

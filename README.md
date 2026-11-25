@@ -34,17 +34,12 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 
 ### OMP
 
-- Stacks a native autocomplete provider (`ctx.ui.addAutocompleteProvider`) with a custom composer editor (`ctx.ui.setEditorComponent`); the built-in provider is wrapped, not replaced.
-- Shows exactly one skill popup at a time: the native menu owns the screen while it is active, and the extension's own composer popup appears only once it is not.
-- Completes the whole `$token` under the caret, so Tab or Enter works with the caret inside the token and preserves the text after it.
-- Keeps a custom renderer compatibility path for older displayed `skills-autocomplete-prompt` entries.
-- Deleting `$` or `$token` closes the popup immediately, including an empty prompt.
-- Escape cancels the popup (and any pending native menu) without changing the prompt.
-- Popup rows are one-line; long descriptions are truncated by the TUI instead of wrapping.
-- Valid skill context is injected as a hidden `skills-autocomplete-prompt` message after the normal user prompt.
-- Post-submit `$skill` highlighting is intentionally not applied to normal OMP user messages; OMP exposes custom renderers only for custom messages, and this extension prefers preserving a true user message over a displayed custom-message substitute.
-- Tested against OMP 18.5.0.
-- Some core OMP Vim modes can still consume Escape while a native list is active; the default composer path is the verified one.
+- Stacks a skill provider through `ctx.ui.addAutocompleteProvider` without replacing the native composer or its built-in providers (including `^` model completion).
+- `$` opens OMP's native autocomplete menu in supported trigger positions, including after whitespace or `(`, `[`, `{`, `,`, or `;`. The extension doesn't render a second menu.
+- Tab or Enter accepts the skill, replacing the whole `$token` even with the caret inside it. Trailing text is preserved; after acceptance, Enter submits normally.
+- Escape dismisses the menu without changing the prompt. Deleting the active token closes the skill menu.
+- Known mentions are highlighted in the draft. Submitted prompts remain normal user messages; the compatibility renderer only applies to older displayed `skills-autocomplete-prompt` entries.
+- Targets OMP 19.2.0's standard interactive terminal composer. Vim modes and Tern have not been verified.
 
 ### plain `pi`
 
@@ -55,7 +50,7 @@ Both versions discover installed skills from `skill:<name>` commands, complete `
 
 ## Requirements
 
-- OMP install: OMP available as `omp` (tested against OMP 18.5.0).
+- OMP install: OMP 19.2.0 available as `omp` for extension v0.3.0. For the previous OMP integration, use the rollback below with your older host.
 - plain `pi` install: plain `pi` available as `pi`.
 - Bun runtime available to extension loading.
 - Existing skills exposed as `skill:<name>` commands.
@@ -68,7 +63,21 @@ Install the OMP extension directly from GitHub:
 omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 ```
 
-Restart the active OMP session after installing or linking; the extension is loaded at startup.
+Force-update an existing GitHub installation from the default branch:
+
+```bash
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete --force
+```
+
+To return to extension v0.2.0 for OMP 18.5.0:
+
+```bash
+omp plugin install "github:MRGRD56/pi-omp-skills-autocomplete#v0.2.0" --force
+```
+
+OMP's GitHub shorthand uses `#tag`, not `@tag`. Rolling back the extension does not change your OMP version.
+
+Restart OMP after installing, updating, rolling back, or linking; the extension loads at startup.
 
 ## Install: plain `pi`
 
@@ -86,11 +95,15 @@ pi install https://github.com/MRGRD56/pi-omp-skills-autocomplete
 
 ## Verify installation
 
-OMP:
+OMP (restart after installing):
 
 ```bash
-omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
+omp --version
+omp plugin list --json
+omp
 ```
+
+Run `/skills-autocomplete-status` inside the interactive OMP session. The notification reports the available skill count.
 
 plain `pi`:
 
@@ -161,8 +174,11 @@ Then verify both entrypoints and package manifests:
 
 ```bash
 omp plugin list --json
+omp
 pi -e .
 ```
+
+In OMP, run `/skills-autocomplete-status` and follow the [native composer smoke checks](OMP_EXTENSION.md#verification).
 
 ## Notes
 

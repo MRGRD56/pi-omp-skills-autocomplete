@@ -7,7 +7,7 @@ This repository packages and maintains `$skill` autocomplete extensions for two 
 
 Keep target-specific implementation details in the target guide files:
 
-- `OMP_EXTENSION.md` — OMP custom editor, renderer compatibility path, `before_agent_start` hidden context, deployment, verification, and regression history.
+- `OMP_EXTENSION.md` — OMP 19.2.0 native composer integration, renderer compatibility, hidden context, deployment, verification, and regression history.
 - `PI_EXTENSION.md` — plain `pi` native provider stacking, `before_agent_start` hidden context, deployment, verification, and non-goals.
 
 ## Repository layout
@@ -57,6 +57,15 @@ omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 pi install git:github.com/MRGRD56/pi-omp-skills-autocomplete
 ```
 
+For an existing OMP GitHub installation, force-update or force-install the rollback tag as appropriate (use `#ref`, not `@ref`):
+
+```bash
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete --force
+omp plugin install "github:MRGRD56/pi-omp-skills-autocomplete#v0.2.0" --force
+```
+
+Restart OMP after installing, updating, rolling back, or linking. Extension v0.3.0 targets OMP 19.2.0; v0.2.0 is the rollback for OMP 18.5.0, not a fix for OMP 19.2.0.
+
 Use the working checkout during development:
 
 ```bash
@@ -79,9 +88,12 @@ bun run check
 After linking the OMP package:
 
 ```bash
+omp --version
 omp plugin list --json
-omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
+omp
 ```
+
+In the interactive OMP session, run `/skills-autocomplete-status` and check the native composer as described in `OMP_EXTENSION.md`. A print-mode launch does not verify the composer.
 
 After installing the local plain `pi` package:
 

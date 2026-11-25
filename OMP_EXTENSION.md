@@ -1,8 +1,8 @@
 # OMP `$skill` Autocomplete Extension
 
-This document captures the OMP-specific implementation, behavior contract, development flow, and regression history for `omp-skills-autocomplete.ts`.
+Extension v0.3.0 targets OMP 19.2.0's standard interactive terminal composer. The OMP development packages are pinned to 19.2.0. Vim modes and Tern have not been verified.
 
-Plain `pi` behavior lives in `PI_EXTENSION.md` and `pi-skills-autocomplete.ts`. Do not merge OMP runtime imports or custom editor logic into the plain `pi` entrypoint.
+Plain `pi` behavior lives in `PI_EXTENSION.md` and `pi-skills-autocomplete.ts`. Keep OMP runtime imports and composer integration out of the plain `pi` entrypoint.
 
 ## Package manifest and installation
 
@@ -28,34 +28,28 @@ Install from GitHub:
 omp plugin install github:MRGRD56/pi-omp-skills-autocomplete
 ```
 
+Force-update a GitHub installation from the default branch, or force-install the rollback tag for OMP 18.5.0:
+
+```bash
+omp plugin install github:MRGRD56/pi-omp-skills-autocomplete --force
+omp plugin install "github:MRGRD56/pi-omp-skills-autocomplete#v0.2.0" --force
+```
+
+Use `#tag` in OMP's GitHub shorthand: `@v0.2.0` is not a GitHub ref separator in OMP 19.2.0. This rollback changes the extension, not the OMP executable.
+
 Link the repository checkout while developing:
 
 ```bash
 omp plugin link .
 ```
 
-Restart the active OMP session after installing or linking; the extension is loaded at startup and is exposed to OMP only through the package manifest.
+Restart OMP after installing, updating, rolling back, or linking. OMP loads the package-managed entrypoint at startup.
 
 Do not copy this file to `$HOME/.omp/agent/extensions`. A copied file bypasses package management and can load alongside the packaged entrypoint.
 
 ## Import boundary
 
-OMP imports from OMP packages only:
-
-```ts
-import type { AutocompleteItem, AutocompleteProvider, EditorTheme, KeybindingsManager, TUI } from "@oh-my-pi/pi-tui";
-import { SelectList } from "@oh-my-pi/pi-tui";
-import type { CustomEditor, CustomMessageContent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-```
-
-Do not import plain `pi` packages in this file:
-
-```text
-@earendil-works/pi-coding-agent
-@earendil-works/pi-tui
-```
-
-OMP owns the custom editor and renderer implementation. Runtime coding-agent values come from the injected `pi.pi` host namespace so the extension does not load OMP's internal source modules from disk. These dependencies must not leak into `pi-skills-autocomplete.ts`.
+Keep OMP imports in `omp-skills-autocomplete.ts`. Prefer type-only imports for host contracts; use OMP's host-provided runtime for composer access and the `@oh-my-pi/pi-tui` JSX Markdown renderer. Do not load a second coding-agent source graph or initialize a theme singleton. The `@earendil-works/` packages belong to the plain `pi` target only.
 
 ## Programmatic identifiers
 
@@ -126,40 +120,22 @@ Validity rules:
 - Unknown `$tokens` must not appear in the hidden suffix.
 - Duplicate valid mentions are deduplicated using first-seen order.
 
-## Autocomplete provider and custom editor
+## Native autocomplete and composer integration
 
-OMP wraps the active autocomplete provider with `createSkillProvider(...)` and stacks it with `ctx.ui.addAutocompleteProvider(...)`; it does not replace the built-in provider through `ctx.ui.setAutocompleteProvider`. A custom composer editor is installed separately through `ctx.ui.setEditorComponent(...)`.
+`ctx.ui.addAutocompleteProvider(...)` wraps the active host provider; neither the provider chain nor the composer is replaced. The host owns the popup, its layout, navigation, and ordinary acceptance. The extension uses native composer key/edit APIs to open that same popup for `$` and complete a candidate in one edit when acceptance arrives before the popup has refreshed. The draft uses native accent/strong decoration for known tokens.
 
-Provider behavior (`createSkillProvider`):
+- Skill results are fuzzy-ranked (exact match, prefix, substring, then ordered subsequence), tie-broken by name, and limited to 30. Item values retain the leading `$`.
+- Completion replaces the entire skill-token span, leaves surrounding text and draft atoms intact in one undoable edit, and puts the caret after the inserted value. If a stale accept no longer resolves to a skill token, it must not rewrite unrelated text.
+- Inline ghost text is only applicable at the end of the token. An acceptance or dismissal shouldn't reopen the popup on repaint; editing or moving away from that context permits a new trigger.
+- Preserve delegation to the wrapped provider, including cancellation/partial results and optional host hooks. Check ordinary slash, file/`@`, and `^` model completion after changes to the wrapper.
 
-- `getSuggestions` resolves the whole `$token` under the caret with `findSkillSpan` and returns `{ items, prefix: span.prefix }` when the token yields items. It returns `null` when `signal?.aborted`, and otherwise delegates to `current.getSuggestions(...)`, forwarding the same `signal` and `onPartial` the host passed in.
-- `buildSkillItems` scores installed skills for the query, caps the list at 30, and returns values/labels with the leading `$` plus the skill description.
-- `applyCompletion` for a `$` completion replaces the complete token span (`span.start`→`span.end`) with the item value, preserves the text after the token, puts the caret after the inserted value, and returns `onApplied: onSkillApplied`. A stale accept whose span no longer resolves returns the buffer unchanged (no-op) instead of rewriting unrelated characters. Non-skill completions delegate to `current.applyCompletion(...)`.
-- `getInlineHint` returns ghost text only at the token tail (`span.end === cursorCol`) and only when the top item extends the prefix; a caret inside the token returns `null` so the characters after the caret are not duplicated.
-- Optional host hooks are forwarded only when the base provider exposes them, so stacking never invents capabilities core did not have: `trySyncSlashCompletion` and `trySyncInlineReplace` are bound through, `getForceFileSuggestions` stays skill-aware for `$` spans and aborted-checked before delegating, and `shouldTriggerFileCompletion` forces native completion on when a `$` span exists.
+### OMP 19.2.0 compatibility seam
 
-Custom editor behavior (`SkillsAutocompleteEditor`):
-
-- Typing `$` opens a skill popup; typing `$token` filters skills.
-- Exactly one skill popup is visible at a time. While native autocomplete is active (`isAutocompleteActive()`), native owns the screen and the extension's own `SelectList` stays prepared but hidden; it renders only once native is not active. This covers the window where core still holds a stale list while waiting for its debounced refresh.
-- While native is active, Escape is routed through the public `handleDraftEdit(data)` instead of `handleInput`, so core's app-level Escape handler cannot leave the native state (and its pending refresh) alive.
-- If the host cancels a stale native menu without applying anything and the buffer revision is unchanged, the extension honours the key by completing its prepared candidate instead: the first Enter completes the token, the next Enter submits.
-- When the wrapped provider applies a skill (`onApplied`), the editor pins the completed context as dismissed, so acceptance through Tab, Enter, Right Arrow, an unchanged token, or a pointer click cannot reopen the extension popup.
-- A temporary public `disableSubmit` guard prevents a stale native Enter from submitting the `$` draft.
-- Deleting `$` or the active `$token` closes the popup immediately, including the empty prompt case.
-- Up/Down/PageUp/PageDown navigate the extension popup without editing text.
-- Extension completion applies the prepared item as one host edit over the whole token span through `applyHostEdit({ from, to, text, cursor, len })`: a single undo, preserved placeholders/atoms and trailing text, and the caret after the inserted value. Even when the token already equals the accepted value, the context is pinned as dismissed.
-- Dismissal identity is `textRevision` + line + column + `span.start` + `span.end`; any edit, undo, or caret move expires the pin, so a dismissed token stays closed until the cursor or text leaves it.
-- Completion must never insert a skill name without the leading `$`.
-- Popup rows must remain one-line. Do not enable `wrapDescription: true`; long descriptions should be truncated by the TUI.
-- Composer decoration (`highlightSkillTokens`) wraps known tokens with the live theme (`theme.bold(theme.fg("accent", ...))`) read through a `() => ctx.ui.theme` getter; the base decorator's decoration context is forwarded unchanged.
-- Initialize the OMP module-local theme with `setThemeInstance(ctx.ui.theme)` before constructing the custom editor. The factory's `theme` parameter is only an `EditorTheme`; the base `CustomEditor` magic-keyword gradient needs the full OMP `Theme`.
-
-Composer decoration may use ANSI styling because it happens before the user message renderer. Do not use ANSI styling inside `UserMessageComponent` Markdown rendering.
+Public provider registration is sufficient to supply suggestions, but the public extension UI does not expose the live composer/caret or a way to register `$` as an automatic popup trigger. During synchronous `ctx.ui.addAutocompleteProvider(...)` registration, the integration briefly wraps the host's `InteractiveMode.prototype.addAutocompleteProvider` to capture that mode's live composer, then immediately restores the method. This depends on OMP 19.2.0's interactive implementation, not a stable extension API. Recheck the registration call chain and composer edit/key contracts on every host upgrade; keep the wrapper scoped to registration rather than intercepting future registrations globally.
 
 ## Hidden model context injection
 
-The submitted prompt must remain a normal OMP user message. Do not intercept `input` to replace it with a visible `skills-autocomplete-prompt` custom message.
+The submitted prompt must remain a normal OMP user message. On `before_agent_start`, refresh the skill cache, extract mentions from `event.prompt`, and return the separate hidden message only when at least one known skill is present. Do not intercept `input` to replace the prompt with a visible `skills-autocomplete-prompt` custom message.
 
 When at least one valid `$skill` mention exists, inject a separate hidden custom message after the user prompt:
 
@@ -178,258 +154,46 @@ Rules:
 - Do not add verbose instructions around the hidden context.
 - Use `display: false` so the context participates in the LLM turn without a visible transcript card.
 
-Implementation shape:
+## Rendering older displayed entries
 
-```ts
-function findMentionedSkills(text: string, skills: readonly SkillInfo[]): string[] {
-	const skillNames = new Set(skills.map(skill => skill.name));
-	const matchedSkills = new Set<string>();
-	text.replace(ALL_TOKENS_RE, (_whole, _lead: string, skillName: string) => {
-		if (skillNames.has(skillName)) matchedSkills.add(skillName);
-		return "";
-	});
-	return [...matchedSkills];
-}
+New `skills-autocomplete-prompt` entries are hidden and normally do not render. The renderer for older **displayed** entries uses the OMP TUI JSX Markdown renderer (`md`), with `details.displayText` preferred over the text from `message.content`. When content is multipart, text parts are joined with newlines; images aren't rendered by this compatibility path.
 
-function formatMentionedSkillsContext(matchedSkills: readonly string[]): string | null {
-	if (matchedSkills.length === 0) return null;
-	return `($-Mentioned skills: ${matchedSkills.join(", ")})`;
-}
-
-pi.on("before_agent_start", event => {
-	const currentSkills = refreshCache().skills;
-	const matchedSkills = findMentionedSkills(event.prompt, currentSkills);
-	const content = formatMentionedSkillsContext(matchedSkills);
-	if (!content) return;
-
-	return {
-		message: {
-			customType: CUSTOM_TYPE,
-			content,
-			display: false,
-			details: { skills: matchedSkills },
-		},
-	};
-});
-```
-
-## Message rendering
-
-New hidden `skills-autocomplete-prompt` messages use `display: false` and normally do not render. Keep the custom renderer as a compatibility path for older displayed `skills-autocomplete-prompt` entries and for any future displayed diagnostic entry of the same type.
-
-Renderer shape:
-
-```ts
-pi.registerMessageRenderer<RenderDetails>(CUSTOM_TYPE, (message, _options, theme) => {
-	pi.pi.setThemeInstance(theme);
-	const details = message.details ?? {};
-	const displayText = details.displayText ?? customMessageText(message.content);
-	return new pi.pi.UserMessageComponent(markdownHighlightSkillTokens(displayText, details.skills ?? []));
-});
-```
-
-`customMessageText` flattens a custom message's `content` (a `string` or a `TextContent`/`ImageContent[]` array) into display text: string content is returned as-is, otherwise the text parts are joined with newlines. Image parts contribute nothing; this renderer makes no image-rendering claim.
-
-Rules:
-
-- Use `UserMessageComponent` from the injected `pi.pi` host namespace.
-- Call `pi.pi.setThemeInstance(theme)` before constructing `UserMessageComponent`.
-- Pass visually transformed `displayText` to `UserMessageComponent`; never render the hidden context as the user prompt.
-- Do not render a custom `Container` / `Text("You")` frame.
-- Do not instantiate `Markdown` directly unless a valid Markdown theme is passed.
-
-Known-skill `$skill` highlighting in this renderer path is visual-only:
-
-- Known skills may use Markdown inline-code styling by wrapping known tokens in backticks inside the renderer path.
-- Renderer-generated backticks must never be inserted into `message.content` or the hidden context.
-- If the user already wrote backticks around `$skill`, do not double-wrap that token.
-- Avoid ANSI highlighting inside `UserMessageComponent` / Markdown. It can mangle `$skill` text.
-- Unknown `$tokens` in the renderer path must be Markdown-escaped as `\$token`, not left raw. Raw unknown dollars can be parsed as Markdown/math delimiters and make later known `$skill` backticks visible or drop the visible `$`.
-- Keep escaping visual-only: never insert renderer escape backslashes into `message.content` or the hidden context.
-
-Current renderer helper behavior:
-
-```ts
-function markdownHighlightSkillTokens(text: string, skills: readonly (SkillInfo | string)[]): string {
-	const skillNames = getSkillNameSet(skills);
-	return text.replace(/(^|[\s([{,;])\$([A-Za-z0-9_-]+)/g, (whole, lead: string, skillName: string, offset: number) => {
-		const tokenStart = offset + lead.length;
-		const tokenEnd = tokenStart + skillName.length + 1;
-		if (text[tokenStart - 1] === "`" && text[tokenEnd] === "`") return whole;
-
-		if (!skillNames.has(skillName)) return `${lead}\\$${skillName}`;
-		return `${lead}\`$${skillName}\``;
-	});
-}
-```
-
-## Display formatting tradeoff
-
-Older OMP behavior used a visible custom `skills-autocomplete-prompt` message for submitted prompts that mentioned skills. That custom message renderer could pass a visually transformed `displayText` into `UserMessageComponent`, so known `$skill` tokens were rendered with Markdown inline-code styling while the extension kept separate model-facing content in `message.content` / details.
-
-Current behavior intentionally does not do that. The submitted prompt remains a normal OMP `role: "user"` message, and skill context is injected separately as a hidden `display: false` custom message from `before_agent_start`.
-
-The tradeoff is deliberate:
-
-- Normal OMP user messages are rendered directly by OMP's transcript builder through `new UserMessageComponent(textContent, ...)`.
-- OMP extension `registerMessageRenderer(...)` applies only to custom messages, not to normal `role: "user"` messages.
-- Therefore plugin-local visual-only `$skill` highlighting after submit is available for displayed custom messages, but not for true user messages.
-- Adding Markdown backticks to the normal user message and stripping them later in a `context` hook would make the persisted/session-visible prompt differ from what the user typed and risks interfering with prompt expansion, mention extraction, exports, search, and other hooks.
-- Keeping a normal user message is preferred because the transcript accurately represents user input, preserves OMP's native user-message semantics, and avoids a hidden two-way transform of displayed text versus LLM text.
-
-Do not reintroduce an `input` handler solely to regain post-submit `$skill` highlighting unless the product decision explicitly prefers displayed custom messages over true user messages. A clean solution requires an OMP core/user-message-renderer extension point that can apply visual-only highlighting to normal user messages.
-
-
-## Input handler contract
-
-Do not use an `input` handler for skill hidden context in OMP. Let OMP submit the prompt normally, then inject hidden context from `before_agent_start`.
-
-Reason: sending the prompt from an `input` handler requires a visible custom message and blocks the normal user message. If the handler shape is wrong, OMP also submits the original prompt and creates duplicates. `before_agent_start` avoids both problems.
-
-If an unrelated future OMP input handler is added, the handled result shape is:
-
-```ts
-return { handled: true };
-```
-
-Do not use the older shape:
-
-```ts
-return { action: "handled" };
-```
-
-## Runtime lifecycle
-
-Default export behavior:
-
-1. Maintain one `SkillCache` (`{ skills, names }`) built by `buildSkillCache(pi)` and refreshed by `refreshCache()`.
-2. Call `pi.setLabel("$ Skills Autocomplete")` for the OMP extension label.
-3. Register `/skills-autocomplete-status`, which refreshes the cache and reports the filtered skill count.
-4. Register the custom `skills-autocomplete-prompt` renderer for compatibility with displayed custom entries.
-5. On `session_start`, refresh the cache and, when UI exists, install `SkillsAutocompleteEditor` once through `setEditorComponent(...)`, then stack the skill provider through `addAutocompleteProvider(...)` (installed after the editor so the host rebuilds the wrapped provider onto it). Repeats refresh the cache without reinstalling the editor.
-6. On `before_agent_start`, refresh the cache and return a hidden `skills-autocomplete-prompt` message when valid skills are present.
-7. On no valid mentions, return `undefined` and let OMP run with only the normal user prompt.
+Known tokens use visual-only Markdown inline-code styling without double-wrapping tokens already in backticks. Escape unknown dollar tokens in the renderer only, so they do not open math spans and corrupt subsequent known mentions. Do not add ANSI escapes, backticks, or escape backslashes to stored or model-facing content. The renderer cannot decorate normal user messages after submission; do not intercept `input` or send a visible custom substitute to regain that effect.
 
 ## Verification
 
-From repository root:
+From the repository root:
 
 ```bash
 bun install
 bun test
 bun run check
+omp --version
+```
+
+For a linked-package smoke test (use only one loading route):
+
+```bash
 omp plugin link .
 omp plugin list --json
-omp -p --no-tools --max-time=5 "/skills-autocomplete-status"
+omp
 ```
 
-`bun test` runs the focused behavioral suite in `tests/omp-skills-autocomplete.test.ts` (25 tests) against the real default export and the host editor factory. The suite covers `$` token boundaries and popup open/close, Tab/Enter/caret-inside-token completion, multiline completion, Escape and dismissal expiry, one-undo completion with preserved atoms and tail, composer highlighting, hidden-context dedup and source-metadata filtering, and native-menu arbitration (debounced refresh, cancel, acceptance, pointer activation, superseded slow lookup, forced file Tab).
+Check that OMP is 19.2.0 and lists one enabled `pi-omp-skills-autocomplete` package. Its OMP manifest must list only `./omp-skills-autocomplete.ts`; remove any duplicate loose legacy entrypoint before testing. For a GitHub release, repeat the smoke against the installed GitHub source after restarting OMP.
 
-`omp plugin list --json` must show one enabled `pi-omp-skills-autocomplete` package whose manifest contains only `./omp-skills-autocomplete.ts`. The legacy `$HOME/.omp/agent/extensions/skills-autocomplete.ts` file must not exist.
+In the standard interactive composer with installed skills:
 
-Manual smoke against a linked package in an interactive OMP session (restart OMP after installing or linking):
+1. Run `/skills-autocomplete-status`; check that the reported count matches the installed skills. Print mode does not check this UI path.
+2. Type `$` at the start and after whitespace or a supported punctuation boundary. Check for a single native menu. Filter with a partial skill name, navigate, then accept with Tab and Enter in separate trials. Try Enter immediately after typing, before the menu refreshes: the first Enter should complete, not submit.
+3. Accept with the caret inside a token and trailing text after it. Confirm the whole token is replaced, `$` is retained, and one undo restores the draft. Include surrounding placeholders or atoms where available.
+4. Test Escape and deletion of the whole token, including an otherwise empty draft. The popup should close without submitting or reopening on repaint; editing into a new token can reopen it. Check that no second menu appears during slow refreshes or transitions from another provider.
+5. Check `/`, file/`@`, and `^` model completion still work. Try a narrow terminal and a long skill description; inspect native menu layout and navigation.
+6. Check that only installed mentions are decorated in the draft. Submit a prompt with repeated known and unknown mentions: the user message stays unchanged and the hidden context contains each known skill once, in first-seen order. Separately check an older displayed entry with a known token, an unknown token, then the known token again; the second known token should still render as inline code.
 
-- `/skills-autocomplete-status` reports the filtered skill count;
-- type `$` at a token boundary and see exactly one skill popup;
-- type `$front`, then Tab or Enter, and get `$frontend-design` with the popup closed; a second Enter submits the prompt;
-- place the caret inside a token, accept, and confirm the whole token is replaced with trailing text and placeholders preserved;
-- press Escape and confirm the popup closes without changing the prompt;
-- with a native file or `@` list still pending, confirm only one menu is ever visible.
+## Regression history
 
-The renderer compatibility path still deserves a focused check. Include a prompt like:
-
-```text
-$agent-browser $markdown-to-docx $not-a-real-skill $agent-browser $0.245
-```
-
-Expected renderer-path facts:
-
-- both `$agent-browser` mentions are highlighted visually;
-- `$markdown-to-docx` is highlighted visually;
-- `$not-a-real-skill` and `$0` are escaped visually, not highlighted;
-- hidden suffix is exactly `($-Mentioned skills: agent-browser, markdown-to-docx)`.
-
-## Regression history and risks
-
-1. Popup remained visible after deleting `$` from an otherwise empty prompt.
-   - Cause: sync logic returned early for empty text before clearing popup state.
-   - Guard: always compute token first and clear popup when no token.
-
-2. Popup rows wrapped long skill descriptions and consumed all popup height.
-   - Cause: `wrapDescription: true`.
-   - Guard: omit `wrapDescription`; let `SelectList` truncate.
-
-3. Tab completion inserted nothing or inserted a skill name without `$`.
-   - Cause: stale prefix/suffix insertion logic.
-   - Guard: replace the whole current `$token` span through `applyHostEdit(...)` so completion is one undoable host edit; the leading `$` comes from the item value.
-
-4. Unknown `$tokens` were highlighted.
-   - Cause: regex-only highlighting without checking installed skill names.
-   - Guard: build a known skill-name set and highlight only matches in that set.
-
-5. LLM prompt stripped `$skill` from the user text.
-   - Cause: transform replaced `$skill` with `skill`.
-   - Guard: preserve original text and append only the compact hidden suffix.
-
-6. Rendering `$docx`, `$frontend-design`, and repeated `$docx` crashed.
-   - Cause: direct `new Markdown(...)` without required theme.
-   - Guard: use `UserMessageComponent` and initialize theme with `setThemeInstance(theme)`.
-
-7. Custom messages appeared as `skills-autocomplete-prompt` framed cards and duplicated as normal user messages.
-   - Cause A: renderer threw, so OMP fell back to `CustomMessageComponent` frame.
-   - Cause B: the old `input` handler sent a custom prompt message and could fail to block the normal submit if the handled result shape changed.
-   - Guard: do not use `input` for hidden context; inject hidden `display: false` context from `before_agent_start` and let the normal user prompt submit.
-
-8. ANSI-highlighted `$skill` text got mangled inside Markdown rendering.
-   - Cause: ANSI escapes around `$...` before Markdown parsing.
-   - Guard: use visual-only Markdown inline-code wrapping in renderer path; keep ANSI highlighting only in the composer decoration path if needed.
-
-9. Repeated known `$skill` after an unknown `$token` rendered with visible backticks or without `$`.
-   - Cause: raw unknown `$not-a-real-skill` / `$0` in `UserMessageComponent` Markdown could open a Markdown/math span before the next inline-code-highlighted known skill.
-   - Guard: in `markdownHighlightSkillTokens`, wrap known skills in Markdown inline code and escape unknown `$tokens` as `\$token` in the renderer path only.
-
-10. Typing `orchestrate` in the custom composer crashed with `theme.getColorMode` on an undefined theme.
-    - Cause: the extension-loaded `@oh-my-pi/pi-coding-agent` module had its own uninitialized theme singleton; the crash stayed dormant until OMP's magic-keyword gradient rendered.
-    - Guard: call `setThemeInstance(ctx.ui.theme)` in the editor factory before constructing `SkillsAutocompleteEditor`; do not pass the narrower `EditorTheme`. Smoke-test the installed extension by typing `orchestrate`.
-
-11. OMP startup spent several seconds loading this extension and became much slower with cold filesystem caches.
-    - Cause: runtime imports from the coding-agent package root or internal component/theme subpaths make a compiled OMP process read and transpile the installed source module graph. After `omp update` or a reboot, cold filesystem and antivirus caches amplify that work.
-    - Guard: keep `CustomEditor`, `ExtensionAPI`, and `ExtensionContext` as type-only imports; obtain `CustomEditor`, `UserMessageComponent`, and `setThemeInstance` from the injected `pi.pi` host namespace. Keep only the bundled `@oh-my-pi/pi-tui` root as a runtime package import.
-
-12. Typing the first character in OMP 18.0.0 crashed in `renderText` while reading `context.line`.
-    - Cause: OMP 18 added an `EditorTextDecorationContext` second argument to `decorateText(text, context)`. The extension wrapper forwarded only `text`, so the base `CustomEditor` received `undefined` context.
-    - Guard: the composer decoration wrapper must forward the optional decoration context unchanged to the base decorator. Keeping the parameter optional in the extension compatibility type is ABI tolerance only; OMP 17.x is no longer a supported whole-extension target because the current extension also relies on provider/editor APIs introduced in OMP 18, and it is tested against OMP 18.5.0.
-
-13. Two skill popups could be visible around the native provider's debounced refresh.
-    - Cause: the extension rendered its own `SelectList` even while native autocomplete was active; the native list can be stale or narrowed to no candidate while core waits for its debounce.
-    - Guard: render the extension popup only when `!isAutocompleteActive()`. The own list stays prepared but hidden while native owns the screen, so exactly one menu is visible. Test: "never renders two skill menus around the debounced native refresh".
-
-14. Enter before the native refresh submitted the `$` draft instead of completing it.
-    - Cause: native had no candidate yet, and the submit key reached the base editor.
-    - Guard: while native is active with a prepared extension candidate, a temporary public `disableSubmit` blocks the submit; when native cancels without applying, the prepared candidate is completed instead, so the first Enter completes and the next Enter submits. Test: "Enter before the debounced refresh completes the skill instead of submitting".
-    - Limit: in exotic slash-argument scopes an extra Enter before submit remains possible; treat that as a conservative posture, not a verified guarantee.
-
-15. Native acceptance reopened the extension popup.
-    - Cause: completion was only observed through the editor's own `handleInput`, so Right Arrow, pointer activation, a Tab accept against a stale native list, or accepting an already-complete token left the context un-dismissed.
-    - Guard: the wrapped provider returns `onApplied: onSkillApplied`, and `#noteNativeSkillApplied` pins the completed context as dismissed. Tests: native accept, right-arrow accept, pointer activation, already-complete token.
-
-16. Completion with the caret inside a token left duplicate characters.
-    - Cause: only the text before the caret was treated as the active token.
-    - Guard: `findSkillSpan` covers both halves of the token, and completion replaces the whole span through one host edit; inline ghost text is emitted only at the token tail. Tests: caret-inside-token completion, multiline completion, one-undo edit with preserved atoms and tail.
-
-17. Escape with an active-but-hidden native list was swallowed by core.
-    - Cause: `CustomEditor` turns Escape on a hidden native list into the app interrupt, leaving the pending native refresh alive.
-    - Guard: while native is active, cancellation is routed through the public `handleDraftEdit(data)` so Escape clears the native state; afterwards only a changed token context may reopen the extension popup. Test: "Escape with a hidden native list leaves normal prompt mode".
-    - Limit: pre-existing core Vim interception can still consume Escape in some modes (for example Insert→Normal on an active-but-invisible native list). Only the default composer path is verified; no claim is made that every Vim mode is fixed.
-
-18. A stale pointer accept could rewrite unrelated characters.
-    - Cause: an accept that arrived after the buffer moved on (for example a pointer click) rewrote characters that no longer formed the token.
-    - Guard: `applyCompletion` returns the buffer unchanged when the token span no longer resolves, so a stale native accept accepts nothing; the extension popup may then surface as cancelled behaviour.
-
-19. Dismissal state could pin forever or fail to survive a repaint.
-    - Cause: a plain dismissed flag had no context identity.
-    - Guard: dismissal identity is `textRevision` + line + column + `span.start` + `span.end`; any edit, undo, or caret move expires the pin. Tests: "Escape closes the popup without reopening on a repaint", "a dismissed popup reopens once the token context changes", "accepting an already-complete token keeps the popup dismissed".
-
-20. Name-only `skill:*` commands were treated as installed skills.
-    - Cause: discovery matched the `skill:` name prefix without checking the host's command source metadata.
-    - Guard: discovery requires `command.source === "skill"` together with the `skill:` prefix, so a decoy command with the skill-name shape but another source never highlights, completes, or reaches the hidden suffix. Test: the decoy source-filter hidden-context and highlighting check.
+- **OMP 18.x custom editor only:** The extension-owned list could double-render with a debounced native list, wrap long descriptions, stay visible after deletion, reopen after native acceptance, or lose Escape/early Enter while a stale native list was active. The 19.2.0 port removes the second list and editor replacement. Keep the dismissal, empty-draft, and early-acceptance checks: native popup state and refresh timing still matter.
+- **Old host imports and theme state:** Loading coding-agent runtime modules from disk caused slow cold starts and a second theme singleton; decorator signature changes also broke rendering. The native composer and host runtime replace that setup. `SelectList` is no longer exported by OMP 19.2.0.
+- **Completion integrity:** Prefix-only replacement duplicated the token tail with an interior caret; stale acceptance could corrupt unrelated text. Preserve whole-token, one-edit replacement and the stale-span guard.
+- **Transcript integrity:** An old `input` path duplicated prompts or stripped leading dollars. Keep the normal user message plus hidden context. For legacy displayed entries, visual ANSI styling and raw unknown dollars previously broke Markdown; keep styling/escaping in the Markdown renderer only.
+- **Skill validity:** A command named `skill:*` is not sufficient without `source: "skill"`. The same discovery filter must govern completion, draft decoration, and hidden context.
